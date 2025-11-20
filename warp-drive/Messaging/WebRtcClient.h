@@ -4,6 +4,17 @@
 
 namespace Warpr::Messaging
 {
+  class MessageAssembler
+  {
+  public:
+    std::optional<rtc::message_variant> PushMessage(const rtc::message_variant& message);
+
+  private:
+    uint32_t _messageIndex = 0;
+    uint32_t _fragmentCount = 0;
+    uint32_t _fragmentsReady = 0;
+    std::vector<uint8_t> _buffer;
+  };
   class WebRtcClient
   {
     inline static const Axodox::Infrastructure::logger _logger{ "WebRtcClient" };
@@ -46,6 +57,8 @@ namespace Warpr::Messaging
     std::shared_ptr<rtc::DataChannel> _controlChannel;
     std::shared_ptr<rtc::DataChannel> _auxChannel;
 
+    MessageAssembler _auxMessageAssembler;
+
     PairingConfiguration _configuration;
 
     Axodox::Infrastructure::event_subscription _signalerMessageReceivedSubscription;
@@ -55,5 +68,6 @@ namespace Warpr::Messaging
     void OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message);
     void OnPairingComplete(const PairingCompleteMessage* message);
     void Connect();
+    void SendMessage(rtc::DataChannel* channel, std::span<const uint8_t> bytes, bool isText = false);
   };
 }

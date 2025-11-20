@@ -15,9 +15,10 @@ export class StreamingService {
   private _controlConnection?: RTCDataChannel;
 
   private _streamConnection?: RTCDataChannel;
-  private _messageBuilder?: MessageAssembler;
+  private _streamMessageBuilder?: MessageAssembler;
 
   private _auxConnection?: RTCDataChannel;
+  private _auxMessageBuilder?: MessageAssembler;
 
   private readonly _events = new EventOwner();
   public readonly FrameReceived = new EventPublisher<StreamingService, EncodedFrame>(this._events);
@@ -38,8 +39,9 @@ export class StreamingService {
 
     this._controlConnection?.close();
     this._streamConnection?.close();
-    this._messageBuilder = new MessageAssembler();
+    this._streamMessageBuilder = new MessageAssembler();
     this._auxConnection?.close();
+    this._auxMessageBuilder = new MessageAssembler(1);
     this._peerConnection?.close();
 
     this._peerConnection = new RTCPeerConnection(configuration);
@@ -74,12 +76,12 @@ export class StreamingService {
       case "stream":
         this._streamConnection = event.channel;
         this._streamConnection.binaryType = "arraybuffer"
-        this._streamConnection.onmessage = (event) => this.OnLowLatencyMessage(event);
+        this._streamConnection.onmessage = (event) => this.OnStreamMessage(event);
         break;
       case "aux":
         this._auxConnection = event.channel;
         this._auxConnection.binaryType = "arraybuffer"
-        this._auxConnection.onmessage = (event) => this._events.Raise(this.AuxMessageReceived, this, event.data);
+        this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
         this._events.Raise(this.Connected, this, null);
         break;
     }
@@ -88,9 +90,9 @@ export class StreamingService {
   private _lastRefreshTime = performance.now();
   private _count = 0;
 
-  private OnLowLatencyMessage(event: MessageEvent<any>) {
+  private OnStreamMessage(event: MessageEvent<any>) {
 
-    let message = this._messageBuilder?.PushMessage(event.data as ArrayBuffer);
+    let message = this._streamMessageBuilder?.PushMessage(event.data as ArrayBuffer);
     if (!message) return;
 
     let now = performance.now();
@@ -104,8 +106,15 @@ export class StreamingService {
       this._count = 0;
     }
 
-    let frame = new EncodedFrame(message);
+    let frame = new EncodedFrame(message as ArrayBuffer);
     this._events.Raise(this.FrameReceived, this, frame);
+  }
+
+  private OnAuxMessage(event: MessageEvent<any>) {
+    let message = this._auxMessageBuilder?.PushMessage(event.data as ArrayBuffer);
+    if (!message) return;
+
+    this._events.Raise(this.AuxMessageReceived, this, message);
   }
 
   private OnIceCandidateAdded(candidate?: string) {

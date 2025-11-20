@@ -10,6 +10,68 @@ using namespace std::chrono;
 
 namespace Warpr::Messaging
 {
+  std::optional<rtc::message_variant> MessageAssembler::PushMessage(const rtc::message_variant& message)
+  {
+    // Only handle binary messages
+    if (!std::holds_alternative<rtc::binary>(message)) {
+      return message;
+    }
+
+    auto& binaryData = std::get<rtc::binary>(message);
+    if (binaryData.size() < 16) {
+      return std::nullopt;
+    }
+
+    // Decode message header
+    memory_stream stream;
+    stream.write(std::span<const std::byte>(binaryData.data(), binaryData.size()));
+    stream.seek(0);
+
+    uint32_t messageIndex;
+    uint32_t messageSize;
+    uint32_t messageSizeWithFlag;
+    uint32_t fragmentIndex;
+
+    stream.read(messageIndex);
+    stream.read(messageSize);
+    stream.read(messageSizeWithFlag);
+    stream.read(fragmentIndex);
+
+    bool isText = (messageSizeWithFlag & 0x80000000u) != 0;
+    uint32_t fragmentSize = messageSizeWithFlag & 0x7FFFFFFFu;
+
+    // Check if this is a new message
+    if (messageIndex != _messageIndex) {
+      _messageIndex = messageIndex;
+      _fragmentCount = (messageSize + fragmentSize - 1) / fragmentSize; // Ceiling division
+      _fragmentsReady = 0;
+      _buffer.clear();
+      _buffer.resize(messageSize);
+    }
+
+    // Copy fragment data to buffer
+    auto fragmentDataSize = binaryData.size() - 16;
+    auto offset = fragmentIndex * fragmentSize;
+    if (offset + fragmentDataSize <= _buffer.size()) {
+      std::memcpy(_buffer.data() + offset, binaryData.data() + 16, fragmentDataSize);
+      _fragmentsReady++;
+    }
+
+    // Check if message is complete
+    if (_fragmentsReady == _fragmentCount) {
+      if (isText) {
+        return rtc::string(reinterpret_cast<const char*>(_buffer.data()), _buffer.size());
+      } else {
+        rtc::binary result;
+        result.resize(_buffer.size());
+        std::memcpy(result.data(), _buffer.data(), _buffer.size());
+        return result;
+      }
+    }
+
+    return std::nullopt;
+  }
+
   const std::string_view WebRtcClient::_stateNames[] = {
     "New",
     "Connecting",
@@ -51,37 +113,7 @@ namespace Warpr::Messaging
 
   void WebRtcClient::SendVideoFrame(std::span<const uint8_t> bytes)
   {
-    lock_guard lock(_mutex);
-
-    //If we are not connected then do not send
-    if (!IsConnected()) return;
-
-    //Split to fragments and send
-    {
-      auto messageSize = _peerConnection->remoteMaxMessageSize() - 16;
-
-      memory_stream stream;
-      stream.reserve(_peerConnection->remoteMaxMessageSize());
-
-      size_t position = 0u;
-      auto fragmentIndex = 0u;
-      while (position < bytes.size())
-      {
-        auto fragmentLength = min(messageSize, bytes.size() - position);
-        stream.reset();
-
-        stream.write(uint32_t(_messageIndex));
-        stream.write(uint32_t(bytes.size()));
-        stream.write(uint32_t(messageSize));
-        stream.write(uint32_t(fragmentIndex++));
-        stream.write(bytes.subspan(position, fragmentLength));
-
-        _streamChannel->send(reinterpret_cast<const std::byte*>(stream.data()), stream.length());
-        position += fragmentLength;
-      }
-
-      _messageIndex++;
-    }
+    SendMessage(_streamChannel.get(), bytes, false);
 
     using namespace std::chrono;
     static steady_clock::time_point _lastReportingTime = {};
@@ -108,7 +140,20 @@ namespace Warpr::Messaging
   {
     lock_guard lock(_mutex);
     if (!IsConnected()) return;
-    _auxChannel->send(message);
+    
+    if (std::holds_alternative<std::string>(message))
+    {
+      const std::string& text = std::get<std::string>(message);
+      auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(text.data()), text.size());
+      SendMessage(_auxChannel.get(), bytes, true);
+    }
+    
+    if (std::holds_alternative<rtc::binary>(message))
+    {
+      const rtc::binary& bin = std::get<rtc::binary>(message);  
+      auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bin.data()), bin.size());
+      SendMessage(_auxChannel.get(), bytes, false);
+    }
   }
 
   void WebRtcClient::OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message)
@@ -159,6 +204,41 @@ namespace Warpr::Messaging
 
     _connectionThread.reset();
     _connectionThread = background_thread({ this, &WebRtcClient::Connect }, "* webrtc connect");
+  }
+
+  void WebRtcClient::SendMessage(rtc::DataChannel* channel, std::span<const uint8_t> bytes, bool isText)
+  {
+    lock_guard lock(_mutex);
+
+    if (!IsConnected()) return;
+
+    {
+      auto messageSize = _peerConnection->remoteMaxMessageSize() - 16;
+      
+      uint32_t messageSizeWithFlag = messageSize | (isText ? 0x80000000u : 0u);
+
+      memory_stream stream;
+      stream.reserve(_peerConnection->remoteMaxMessageSize());
+
+      size_t position = 0u;
+      auto fragmentIndex = 0u;
+      while (position < bytes.size())
+      {
+        auto fragmentLength = min(messageSize, bytes.size() - position);
+        stream.reset();
+
+        stream.write(uint32_t(_messageIndex));
+        stream.write(uint32_t(bytes.size()));
+        stream.write(uint32_t(messageSizeWithFlag));
+        stream.write(uint32_t(fragmentIndex++));
+        stream.write(bytes.subspan(position, fragmentLength));
+
+        channel->send(reinterpret_cast<const std::byte*>(stream.data()), stream.length());
+        position += fragmentLength;
+      }
+
+      _messageIndex++;
+    }
   }
 
   void WebRtcClient::Connect()
@@ -228,7 +308,10 @@ namespace Warpr::Messaging
           _events.raise(ControlMessageReceived, this, &data);
           });
         _auxChannel->onMessage([=](message_variant data) {
-          _events.raise(AuxMessageReceived, this, &data);
+          auto assembled = _auxMessageAssembler.PushMessage(data);
+          if (assembled.has_value()) {
+            _events.raise(AuxMessageReceived, this, &assembled.value());
+          }
           });
       }
 
