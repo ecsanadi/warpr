@@ -13,12 +13,14 @@ namespace Warpr::Messaging
   std::optional<rtc::message_variant> MessageAssembler::PushMessage(const rtc::message_variant& message)
   {
     // Only handle binary messages
-    if (!std::holds_alternative<rtc::binary>(message)) {
+    if (!std::holds_alternative<rtc::binary>(message))
+    {
       return message;
     }
 
     auto& binaryData = std::get<rtc::binary>(message);
-    if (binaryData.size() < 16) {
+    if (binaryData.size() < 16)
+    {
       return std::nullopt;
     }
 
@@ -41,7 +43,8 @@ namespace Warpr::Messaging
     uint32_t fragmentSize = messageSizeWithFlag & 0x7FFFFFFFu;
 
     // Check if this is a new message
-    if (messageIndex != _messageIndex) {
+    if (messageIndex != _messageIndex)
+    {
       _messageIndex = messageIndex;
       _fragmentCount = (messageSize + fragmentSize - 1) / fragmentSize; // Ceiling division
       _fragmentsReady = 0;
@@ -52,16 +55,21 @@ namespace Warpr::Messaging
     // Copy fragment data to buffer
     auto fragmentDataSize = binaryData.size() - 16;
     auto offset = fragmentIndex * fragmentSize;
-    if (offset + fragmentDataSize <= _buffer.size()) {
+    if (offset + fragmentDataSize <= _buffer.size())
+    {
       std::memcpy(_buffer.data() + offset, binaryData.data() + 16, fragmentDataSize);
       _fragmentsReady++;
     }
 
     // Check if message is complete
-    if (_fragmentsReady == _fragmentCount) {
-      if (isText) {
+    if (_fragmentsReady == _fragmentCount)
+    {
+      if (isText)
+      {
         return rtc::string(reinterpret_cast<const char*>(_buffer.data()), _buffer.size());
-      } else {
+      }
+      else
+      {
         rtc::binary result;
         result.resize(_buffer.size());
         std::memcpy(result.data(), _buffer.data(), _buffer.size());
@@ -138,22 +146,40 @@ namespace Warpr::Messaging
 
   void WebRtcClient::SendAuxMessage(const rtc::message_variant& message)
   {
-    lock_guard lock(_mutex);
-    if (!IsConnected()) return;
-    
-    if (std::holds_alternative<std::string>(message))
-    {
-      const std::string& text = std::get<std::string>(message);
-      auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(text.data()), text.size());
-      SendMessage(_auxChannel.get(), bytes, true);
-    }
-    
-    if (std::holds_alternative<rtc::binary>(message))
-    {
-      const rtc::binary& bin = std::get<rtc::binary>(message);  
-      auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(bin.data()), bin.size());
-      SendMessage(_auxChannel.get(), bytes, false);
-    }
+    std::visit([this](auto&& arg) {
+      using T = std::decay_t<decltype(arg)>;
+
+      // binary
+      try
+      {
+        if constexpr (std::is_same_v<T, rtc::binary>)
+        {
+          _logger.log(log_severity::debug, "SendAuxMessage: Sending binary message, size: {}", arg.size());
+          auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(arg.data()), arg.size());
+          SendMessage(_auxChannel.get(), bytes, false);
+        }
+      }
+      catch (const std::exception& ex)
+      {
+        _logger.log(log_severity::error, "SendAuxMessage: Exception in binary message handling: {}", ex.what());
+        throw;
+      }
+
+      // string
+      try
+      {
+        if constexpr (std::is_same_v<T, std::string> || std::is_same_v<T, rtc::string>)
+        {
+          _logger.log(log_severity::debug, "SendAuxMessage: Sending text message, size: {}", arg.size());
+          auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(arg.data()), arg.size());
+          SendMessage(_auxChannel.get(), bytes, true);
+        }
+      }
+      catch (const std::exception& ex)
+      {
+        _logger.log(log_severity::error, "SendAuxMessage: Exception in text message handling: {}", ex.what());
+        throw;
+      }}, message);
   }
 
   void WebRtcClient::OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message)
@@ -214,7 +240,7 @@ namespace Warpr::Messaging
 
     {
       auto messageSize = _peerConnection->remoteMaxMessageSize() - 16;
-      
+
       uint32_t messageSizeWithFlag = messageSize | (isText ? 0x80000000u : 0u);
 
       memory_stream stream;
@@ -309,7 +335,8 @@ namespace Warpr::Messaging
           });
         _auxChannel->onMessage([=](message_variant data) {
           auto assembled = _auxMessageAssembler.PushMessage(data);
-          if (assembled.has_value()) {
+          if (assembled.has_value())
+          {
             _events.raise(AuxMessageReceived, this, &assembled.value());
           }
           });
