@@ -111,10 +111,14 @@ export class StreamingService {
   }
 
   private OnAuxMessage(event: MessageEvent<any>) {
-    let message = this._auxMessageBuilder?.PushMessage(event.data as ArrayBuffer);
-    if (!message) return;
-
-    this._events.Raise(this.AuxMessageReceived, this, message);
+    if (event.data instanceof ArrayBuffer && event.data.byteLength >= 16) {
+      let message = this._auxMessageBuilder?.PushMessage(event.data);
+      if (!message) return;
+      
+      this._events.Raise(this.AuxMessageReceived, this, message);
+    } else {
+      this._events.Raise(this.AuxMessageReceived, this, event.data);
+    }
   }
 
   private OnIceCandidateAdded(candidate?: string) {
