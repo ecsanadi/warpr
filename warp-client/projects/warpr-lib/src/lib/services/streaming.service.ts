@@ -5,6 +5,7 @@ import { IMessagingClient } from '../networking/messaging-client';
 import { EncodedFrame } from '../data/frames';
 import { EventOwner, EventPublisher } from '../infrastructure/events';
 import { MessageAssembler } from '../infrastructure/message-assembler';
+import { MessageSplitter } from '../infrastructure/message-splitter';
 
 @Injectable({
   providedIn: 'root'
@@ -19,10 +20,13 @@ export class StreamingService {
 
   private _auxConnection?: RTCDataChannel;
   private _auxMessageBuilder?: MessageAssembler;
+  private _auxMessageSplitter = new MessageSplitter();
+  private _auxMessageQueue: any[] = [];
 
   private readonly _events = new EventOwner();
   public readonly FrameReceived = new EventPublisher<StreamingService, EncodedFrame>(this._events);
   public readonly Connected = new EventPublisher<StreamingService, any>(this._events);
+  public readonly AuxChannelReady = new EventPublisher<StreamingService, any>(this._events);
 
   public readonly ControlMessageReceived = new EventPublisher<StreamingService, any>(this._events);
   public readonly AuxMessageReceived = new EventPublisher<StreamingService, any>(this._events);
@@ -56,7 +60,42 @@ export class StreamingService {
   }
 
   public SendAuxMessage(message: any) {
-    this._auxConnection?.send(message);
+    if (!this._auxConnection || this._auxConnection.readyState !== 'open') {
+      this._auxMessageQueue.push(message);
+      return;
+    }
+
+    this.SendAuxMessageFragmented(message);
+  }
+
+  private SendAuxMessageFragmented(message: any) {
+    if (!this._auxConnection || this._auxConnection.readyState !== 'open') {
+      return;
+    }
+
+    let bytes: Uint8Array;
+    let isText = false;
+    
+    if (typeof message === 'string') {
+      bytes = new TextEncoder().encode(message);
+      isText = true;
+    } else if (message instanceof ArrayBuffer) {
+      bytes = new Uint8Array(message);
+    } else if (message instanceof Uint8Array) {
+      bytes = message;
+    } else {
+      let json = JSON.stringify(message);
+      bytes = new TextEncoder().encode(json);
+      isText = true;
+    }
+
+    let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize ?? 262144;
+    let fragments = this._auxMessageSplitter.SplitMessage(bytes, maxMessageSize, isText);
+    console.log(`Sending message: ${bytes.length} bytes in ${fragments.length} fragment(s) (max: ${maxMessageSize})`);
+    
+    for (let i = 0; i < fragments.length; i++) {
+      this._auxConnection.send(fragments[i]);
+    }
   }
 
   private OnConnectionStateChanged() {
@@ -82,6 +121,17 @@ export class StreamingService {
         this._auxConnection = event.channel;
         this._auxConnection.binaryType = "arraybuffer"
         this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
+        this._auxConnection.onopen = () => {
+          console.log('Aux channel is now open and ready');
+          this._events.Raise(this.AuxChannelReady, this, null);
+          if (this._auxMessageQueue.length > 0) {
+            console.log(`Flushing ${this._auxMessageQueue.length} queued message(s)`);
+            while (this._auxMessageQueue.length > 0) {
+              let queuedMessage = this._auxMessageQueue.shift();
+              this.SendAuxMessageFragmented(queuedMessage);
+            }
+          }
+        };
         this._events.Raise(this.Connected, this, null);
         break;
     }
