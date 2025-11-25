@@ -8,17 +8,15 @@ export class MessageSplitter {
     maxMessageSize: number,
     isText: boolean = false
   ): ArrayBuffer[] {
-    const fragments: ArrayBuffer[] = [];
-    const messageSize = maxMessageSize - 16;
-    
-    const messageSizeWithFlag = messageSize | (isText ? 0x80000000 : 0);
-
+    let fragments: ArrayBuffer[] = [];
+    let messageSize = maxMessageSize - 16;
+    let messageSizeWithFlag = messageSize | (isText ? 0x80000000 : 0);
     let position = 0;
     let fragmentIndex = 0;
 
     while (position < bytes.length) {
-      const fragmentLength = Math.min(messageSize, bytes.length - position);
-      const stream = new MemoryStream(maxMessageSize);
+      let fragmentLength = Math.min(messageSize, bytes.length - position);
+      let stream = new MemoryStream(maxMessageSize);
 
       stream.WriteUInt32(this._messageIndex);
       stream.WriteUInt32(bytes.length);

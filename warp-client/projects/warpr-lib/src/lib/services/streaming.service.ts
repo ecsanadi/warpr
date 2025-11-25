@@ -91,7 +91,7 @@ export class StreamingService {
 
     let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize ?? 262144;
     let fragments = this._auxMessageSplitter.SplitMessage(bytes, maxMessageSize, isText);
-    console.log(`Sending message: ${bytes.length} bytes in ${fragments.length} fragment(s) (max: ${maxMessageSize})`);
+    console.log(`Sending message: ${bytes.length} bytes in ${fragments.length} fragments.`);
     
     for (let i = 0; i < fragments.length; i++) {
       this._auxConnection.send(fragments[i]);
@@ -122,10 +122,8 @@ export class StreamingService {
         this._auxConnection.binaryType = "arraybuffer"
         this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
         this._auxConnection.onopen = () => {
-          console.log('Aux channel is now open and ready');
           this._events.Raise(this.AuxChannelReady, this, null);
           if (this._auxMessageQueue.length > 0) {
-            console.log(`Flushing ${this._auxMessageQueue.length} queued message(s)`);
             while (this._auxMessageQueue.length > 0) {
               let queuedMessage = this._auxMessageQueue.shift();
               this.SendAuxMessageFragmented(queuedMessage);

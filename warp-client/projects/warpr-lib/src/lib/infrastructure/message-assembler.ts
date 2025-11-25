@@ -58,9 +58,9 @@ export class MessageAssembler {
 
     if (builder.AddFragment(fragmentIndex, fragment)) {
       this._builders.delete(messageIndex);
-      
+
       if (builder.IsText) {
-        const decoder = new TextDecoder();
+        let decoder = new TextDecoder();
         return decoder.decode(builder.Buffer);
       } else {
         return builder.Buffer.buffer;
