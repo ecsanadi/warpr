@@ -162,7 +162,7 @@ export class StreamingService {
 
   private OnAuxMessage(event: MessageEvent<any>) {
     if (event.data instanceof ArrayBuffer && event.data.byteLength >= 16) {
-      let message = this._auxMessageBuilder?.PushMessage(event.data);
+      let message = this._auxMessageBuilder?.PushMessage(event.data);      
       if (!message) return;
       
       this._events.Raise(this.AuxMessageReceived, this, message);

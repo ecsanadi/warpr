@@ -12,7 +12,6 @@ namespace Warpr::Messaging
 {
   std::optional<rtc::message_variant> MessageAssembler::PushMessage(const rtc::message_variant& message)
   {
-    // Only handle binary messages
     if (!std::holds_alternative<rtc::binary>(message))
     {
       return message;
@@ -24,7 +23,7 @@ namespace Warpr::Messaging
       return std::nullopt;
     }
 
-    // Decode message header
+    // Message header
     memory_stream stream;
     stream.write(std::span<const std::byte>(binaryData.data(), binaryData.size()));
     stream.seek(0);
@@ -42,7 +41,6 @@ namespace Warpr::Messaging
     bool isText = (messageSizeWithFlag & 0x80000000u) != 0;
     uint32_t fragmentSize = messageSizeWithFlag & 0x7FFFFFFFu;
 
-    // Check if this is a new message
     if (messageIndex != _messageIndex)
     {
       _messageIndex = messageIndex;
@@ -52,7 +50,7 @@ namespace Warpr::Messaging
       _buffer.resize(messageSize);
     }
 
-    // Copy fragment data to buffer
+    // Copy to buffer
     auto fragmentDataSize = binaryData.size() - 16;
     auto offset = fragmentIndex * fragmentSize;
     if (offset + fragmentDataSize <= _buffer.size())
@@ -61,7 +59,6 @@ namespace Warpr::Messaging
       _fragmentsReady++;
     }
 
-    // Check if message is complete
     if (_fragmentsReady == _fragmentCount)
     {
       if (isText)
