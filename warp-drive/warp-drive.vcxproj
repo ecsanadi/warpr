@@ -73,7 +73,6 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>WindowsApp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Debug'">
@@ -107,6 +106,9 @@
     <ClCompile Include="Input\InputProvider.cpp" />
     <ClCompile Include="Input\InputSink.cpp" />
     <ClCompile Include="Input\InputSinkFactory.cpp" />
+    <ClCompile Include="Messaging\FragmentedMessageHeader.cpp" />
+    <ClCompile Include="Messaging\MessageAssembler.cpp" />
+    <ClCompile Include="Messaging\MessageSplitter.cpp" />
     <ClCompile Include="Messaging\SignalingMessages.cpp" />
     <ClCompile Include="Messaging\StreamConnection.cpp" />
     <ClCompile Include="Messaging\StreamingMessages.cpp" />
@@ -138,6 +140,9 @@
     <ClInclude Include="Input\InputSink.h" />
     <ClInclude Include="Input\InputSinkFactory.h" />
     <ClInclude Include="Input\PointerInput.h" />
+    <ClInclude Include="Messaging\FragmentedMessageHeader.h" />
+    <ClInclude Include="Messaging\MessageAssembler.h" />
+    <ClInclude Include="Messaging\MessageSplitter.h" />
     <ClInclude Include="Messaging\SignalingMessages.h" />
     <ClInclude Include="Messaging\StreamConnection.h" />
     <ClInclude Include="Messaging\StreamingMessages.h" />

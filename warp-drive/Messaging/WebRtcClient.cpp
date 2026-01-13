@@ -2,7 +2,6 @@
 #include "WebRtcClient.h"
 
 using namespace Axodox::Infrastructure;
-using namespace Axodox::Storage;
 using namespace Axodox::Threading;
 using namespace rtc;
 using namespace std;
@@ -10,73 +9,6 @@ using namespace std::chrono;
 
 namespace Warpr::Messaging
 {
-  std::optional<rtc::message_variant> MessageAssembler::PushMessage(const rtc::message_variant& message)
-  {
-    if (!std::holds_alternative<rtc::binary>(message))
-    {
-      return message;
-    }
-
-    auto& binaryData = std::get<rtc::binary>(message);
-    if (binaryData.size() < 16)
-    {
-      return std::nullopt;
-    }
-
-    // Message header
-    memory_stream stream;
-    stream.write(std::span<const std::byte>(binaryData.data(), binaryData.size()));
-    stream.seek(0);
-
-    uint32_t messageIndex;
-    uint32_t messageSize;
-    uint32_t messageSizeWithFlag;
-    uint32_t fragmentIndex;
-
-    stream.read(messageIndex);
-    stream.read(messageSize);
-    stream.read(messageSizeWithFlag);
-    stream.read(fragmentIndex);
-
-    bool isText = (messageSizeWithFlag & 0x80000000u) != 0;
-    uint32_t fragmentSize = messageSizeWithFlag & 0x7FFFFFFFu;
-
-    if (messageIndex != _messageIndex)
-    {
-      _messageIndex = messageIndex;
-      _fragmentCount = (messageSize + fragmentSize - 1) / fragmentSize; // Ceiling division
-      _fragmentsReady = 0;
-      _buffer.clear();
-      _buffer.resize(messageSize);
-    }
-
-    // Copy to buffer
-    auto fragmentDataSize = binaryData.size() - 16;
-    auto offset = fragmentIndex * fragmentSize;
-    if (offset + fragmentDataSize <= _buffer.size())
-    {
-      std::memcpy(_buffer.data() + offset, binaryData.data() + 16, fragmentDataSize);
-      _fragmentsReady++;
-    }
-
-    if (_fragmentsReady == _fragmentCount)
-    {
-      if (isText)
-      {
-        return rtc::string(reinterpret_cast<const char*>(_buffer.data()), _buffer.size());
-      }
-      else
-      {
-        rtc::binary result;
-        result.resize(_buffer.size());
-        std::memcpy(result.data(), _buffer.data(), _buffer.size());
-        return result;
-      }
-    }
-
-    return std::nullopt;
-  }
-
   const std::string_view WebRtcClient::_stateNames[] = {
     "New",
     "Connecting",
@@ -143,40 +75,30 @@ namespace Warpr::Messaging
 
   void WebRtcClient::SendAuxMessage(const rtc::message_variant& message)
   {
-    std::visit([this](auto&& arg) {
-      using T = std::decay_t<decltype(arg)>;
+    std::span<const uint8_t> bytes;
+    bool isText = false;
 
-      // binary
-      try
-      {
-        if constexpr (std::is_same_v<T, rtc::binary>)
-        {
-          _logger.log(log_severity::debug, "SendAuxMessage: Sending binary message, size: {}", arg.size());
-          auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(arg.data()), arg.size());
-          SendMessage(_auxChannel.get(), bytes, false);
-        }
-      }
-      catch (const std::exception& ex)
-      {
-        _logger.log(log_severity::error, "SendAuxMessage: Exception in binary message handling: {}", ex.what());
-        throw;
-      }
+    if (std::holds_alternative<rtc::binary>(message))
+    {
+      auto& data = std::get<rtc::binary>(message);
+      bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(data.data()), data.size());      
+    }
+    else if (std::holds_alternative<std::string>(message))
+    {
+      auto& data = std::get<std::string>(message);
+      bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+      isText = true;
+    }
 
-      // string
-      try
-      {
-        if constexpr (std::is_same_v<T, std::string> || std::is_same_v<T, rtc::string>)
-        {
-          _logger.log(log_severity::debug, "SendAuxMessage: Sending text message, size: {}", arg.size());
-          auto bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(arg.data()), arg.size());
-          SendMessage(_auxChannel.get(), bytes, true);
-        }
-      }
-      catch (const std::exception& ex)
-      {
-        _logger.log(log_severity::error, "SendAuxMessage: Exception in text message handling: {}", ex.what());
-        throw;
-      }}, message);
+    try
+    {
+      SendMessage(_auxChannel.get(), bytes, isText);
+    }
+    catch (const std::exception& ex)
+    {
+      _logger.log(log_severity::error, "Failed to send auxiliary message. {}", ex.what());
+      throw;
+    }
   }
 
   void WebRtcClient::OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message)
@@ -236,30 +158,11 @@ namespace Warpr::Messaging
     if (!IsConnected()) return;
 
     {
-      auto messageSize = _peerConnection->remoteMaxMessageSize() - 16;
-
-      uint32_t messageSizeWithFlag = messageSize | (isText ? 0x80000000u : 0u);
-
-      memory_stream stream;
-      stream.reserve(_peerConnection->remoteMaxMessageSize());
-
-      size_t position = 0u;
-      auto fragmentIndex = 0u;
-      while (position < bytes.size())
+      auto fragments = _auxMessageSplitter.SplitMessage(_peerConnection->remoteMaxMessageSize(), isText, bytes, _messageIndex);
+      for (auto& fragment : fragments)
       {
-        auto fragmentLength = min(messageSize, bytes.size() - position);
-        stream.reset();
-
-        stream.write(uint32_t(_messageIndex));
-        stream.write(uint32_t(bytes.size()));
-        stream.write(uint32_t(messageSizeWithFlag));
-        stream.write(uint32_t(fragmentIndex++));
-        stream.write(bytes.subspan(position, fragmentLength));
-
-        channel->send(reinterpret_cast<const std::byte*>(stream.data()), stream.length());
-        position += fragmentLength;
+        channel->send(reinterpret_cast<const std::byte*>(fragment.data()), fragment.length());
       }
-
       _messageIndex++;
     }
   }
@@ -331,10 +234,13 @@ namespace Warpr::Messaging
           _events.raise(ControlMessageReceived, this, &data);
           });
         _auxChannel->onMessage([=](message_variant data) {
-          auto assembled = _auxMessageAssembler.PushMessage(data);
-          if (assembled.has_value())
+          if (std::holds_alternative<rtc::binary>(data))
           {
-            _events.raise(AuxMessageReceived, this, &assembled.value());
+            auto message = _auxMessageAssembler.PushMessage(std::get<rtc::binary>(data));
+            if (message)
+            {
+              _events.raise(AuxMessageReceived, this, &*message);
+            }
           }
           });
       }

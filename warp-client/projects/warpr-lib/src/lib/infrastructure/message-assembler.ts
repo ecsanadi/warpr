@@ -4,17 +4,15 @@ class MessageBuilder {
   public readonly FragmentCount: number;
   public FragmentsReady: number = 0;
   public Buffer: Uint8Array;
-  public readonly IsText: boolean;
 
   constructor(
     public readonly Id: number,
     public readonly Size: number,
     public readonly FragmentSize: number,
-    isText: boolean = false
+    public readonly IsText: boolean = false
   ) {
     this.FragmentCount = Math.ceil(Size / FragmentSize);
     this.Buffer = new Uint8Array(Size);
-    this.IsText = isText;
   }
 
   AddFragment(index: number, buffer: Uint8Array): boolean {
@@ -37,12 +35,12 @@ export class MessageAssembler {
     let stream = new ArrayStream(buffer);
     let messageIndex = stream.ReadUInt32();
     let messageSize = stream.ReadUInt32();
-    let messageSizeWithFlag = stream.ReadUInt32();
+    let fragmentSizeWithFlag = stream.ReadUInt32();
     let fragmentIndex = stream.ReadUInt32();
     let fragment = new Uint8Array(stream.ReadToEnd());
 
-    let isText = (messageSizeWithFlag & 0x80000000) !== 0;
-    let fragmentSize = messageSizeWithFlag & 0x7FFFFFFF;
+    let isText = (fragmentSizeWithFlag & 0x80000000) !== 0;
+    let fragmentSize = fragmentSizeWithFlag & 0x7FFFFFFF;
 
     let builder = this._builders.get(messageIndex);
     if (builder === undefined) {
