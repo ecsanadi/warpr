@@ -1,23 +1,26 @@
 #pragma once
-
-#include <cstdint>
-#include <cstddef>
+#include "warpr_includes.h"
 
 namespace Warpr::Messaging
 {
+  enum class MessageContentType
+  {
+    Binary,
+    Text
+  };
+
   struct FragmentedMessageHeader
   {
-    uint32_t MessageIndex;
-    uint32_t MessageSize;
-    uint32_t FragmentSizeWithFlags;
-    uint32_t FragmentIndex;
+    uint32_t MessageIndex = 0;
+    uint32_t MessageSize = 0;
+    uint32_t FragmentSizeWithContentType = 0;
+    uint32_t FragmentIndex = 0;
 
-    static constexpr uint32_t TextFlag = 0x80000000u;
-    static constexpr uint32_t SizeMask = 0x7FFFFFFFu;
-    static size_t Size;
+    MessageContentType ContentType() const;
+    void ContentType(MessageContentType value);
 
-    bool IsText() const { return (FragmentSizeWithFlags & TextFlag) != 0; }
-    uint32_t FragmentSize() const { return FragmentSizeWithFlags & SizeMask; }
+    uint32_t FragmentSize() const;
+    void FragmentSize(uint32_t value);
   };  
 
   static_assert(sizeof(FragmentedMessageHeader) == 16, "FragmentedMessageHeader must be 16 bytes.");

@@ -3,7 +3,7 @@ import { MessageContentType, MessageContent, MessageFragmentSizeBits } from "./m
 
 class MessageBuilder {
   public readonly FragmentCount: number;
-  public FragmentsReady: number = 0;
+  public FragmentsReceived: number = 0;
   public Buffer: Uint8Array;
   private readonly _textDecoder = new TextDecoder();
 
@@ -18,16 +18,16 @@ class MessageBuilder {
   }
 
   AddFragment(index: number, buffer: Uint8Array): boolean {
-    if (this.FragmentCount == this.FragmentsReady) throw RangeError("All message parts have been already collected.");
+    if (this.FragmentCount == this.FragmentsReceived) throw RangeError("All message parts have been already collected.");
 
     this.Buffer.set(buffer, this.FragmentSize * index);
-    this.FragmentsReady++;
+    this.FragmentsReceived++;
 
-    return this.FragmentCount == this.FragmentsReady;
+    return this.FragmentCount == this.FragmentsReceived;
   }
 
   GetMessage(): MessageContent | null {
-    if (this.FragmentCount == this.FragmentsReady) {
+    if (this.FragmentCount == this.FragmentsReceived) {
       switch (this.ContentType) {
         case MessageContentType.Binary:
           return this.Buffer.buffer;

@@ -1,4 +1,5 @@
 #pragma once
+#include "warpr_includes.h"
 
 namespace Warpr::Messaging
 {
@@ -10,7 +11,7 @@ namespace Warpr::Messaging
   private:
     uint32_t _messageIndex = 0;
     uint32_t _fragmentCount = 0;
-    uint32_t _fragmentsReady = 0;
-    std::vector<uint8_t> _buffer;
+    uint32_t _fragmentsReceived = 0;
+    std::vector<std::byte> _buffer;
   };  
 }

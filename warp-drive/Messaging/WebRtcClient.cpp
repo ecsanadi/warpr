@@ -40,6 +40,10 @@ namespace Warpr::Messaging
     _containerRef(container->get_ref()),
     _settings(container->resolve<WarpConfiguration>()),
     _signaler(container->resolve<WebSocketClient>()),
+
+    _lastReportingTime(steady_clock::now()),
+    _dataSentSinceLastReport(0),
+
     _signalerMessageReceivedSubscription(_signaler->MessageReceived({ this, &WebRtcClient::OnSignalingMessageReceived }))
   { }
 
@@ -48,21 +52,23 @@ namespace Warpr::Messaging
     return _peerConnection && _peerConnection->state() == PeerConnection::State::Connected;
   }
 
-  void WebRtcClient::SendVideoFrame(std::span<const uint8_t> bytes)
+  void WebRtcClient::SendVideoFrame(const std::vector<uint8_t>& bytes)
   {
-    SendMessage(_streamChannel.get(), bytes, false);
+    lock_guard lock(_mutex);
+    if (!IsConnected()) return;
 
-    using namespace std::chrono;
-    static steady_clock::time_point _lastReportingTime = {};
-    static uint64_t _dataSent = 0;
-    _dataSent += bytes.size();
+    _streamMessageSplitter.SplitMessage(reinterpret_cast<const binary&>(bytes), [=](const binary& message) {
+      _streamChannel->send(message);
+      });
+
+    _dataSentSinceLastReport += bytes.size();
     auto now = steady_clock::now();
     if (now - _lastReportingTime > 1s)
     {
       _logger.log(log_severity::debug, L"Output buffer size: {} bytes", _streamChannel->bufferedAmount());
-      _logger.log(log_severity::debug, L"Output data rate: {} bytes/second", _dataSent);
+      _logger.log(log_severity::debug, L"Output data rate: {} bytes/second", _dataSentSinceLastReport);
       _lastReportingTime = now;
-      _dataSent = 0;
+      _dataSentSinceLastReport = 0;
     }
   }
 
@@ -75,30 +81,12 @@ namespace Warpr::Messaging
 
   void WebRtcClient::SendAuxMessage(const rtc::message_variant& message)
   {
-    std::span<const uint8_t> bytes;
-    bool isText = false;
+    lock_guard lock(_mutex);
+    if (!IsConnected()) return;
 
-    if (std::holds_alternative<rtc::binary>(message))
-    {
-      auto& data = std::get<rtc::binary>(message);
-      bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(data.data()), data.size());      
-    }
-    else if (std::holds_alternative<std::string>(message))
-    {
-      auto& data = std::get<std::string>(message);
-      bytes = std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(data.data()), data.size());
-      isText = true;
-    }
-
-    try
-    {
-      SendMessage(_auxChannel.get(), bytes, isText);
-    }
-    catch (const std::exception& ex)
-    {
-      _logger.log(log_severity::error, "Failed to send auxiliary message. {}", ex.what());
-      throw;
-    }
+    _auxMessageSplitter.SplitMessage(message, [=](const binary& message) {
+      _auxChannel->send(message);
+      });
   }
 
   void WebRtcClient::OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message)
@@ -151,22 +139,6 @@ namespace Warpr::Messaging
     _connectionThread = background_thread({ this, &WebRtcClient::Connect }, "* webrtc connect");
   }
 
-  void WebRtcClient::SendMessage(rtc::DataChannel* channel, std::span<const uint8_t> bytes, bool isText)
-  {
-    lock_guard lock(_mutex);
-
-    if (!IsConnected()) return;
-
-    {
-      auto fragments = _auxMessageSplitter.SplitMessage(_peerConnection->remoteMaxMessageSize(), isText, bytes, _messageIndex);
-      for (auto& fragment : fragments)
-      {
-        channel->send(reinterpret_cast<const std::byte*>(fragment.data()), fragment.length());
-      }
-      _messageIndex++;
-    }
-  }
-
   void WebRtcClient::Connect()
   {
     while (!_connectionThread.is_exiting())
@@ -209,6 +181,12 @@ namespace Warpr::Messaging
 
         _peerConnection->onStateChange([=](PeerConnection::State state) {
           _logger.log(log_severity::information, "State changed to '{}'.", _stateNames[size_t(state)]);
+
+          if (state == PeerConnection::State::Connected)
+          {
+            _streamMessageSplitter.MaxMessageSize = _peerConnection->remoteMaxMessageSize();
+            _auxMessageSplitter.MaxMessageSize = _peerConnection->remoteMaxMessageSize();
+          }
           });
 
         _peerConnection->onIceStateChange([=](PeerConnection::IceState state) {
@@ -234,9 +212,9 @@ namespace Warpr::Messaging
           _events.raise(ControlMessageReceived, this, &data);
           });
         _auxChannel->onMessage([=](message_variant data) {
-          if (std::holds_alternative<rtc::binary>(data))
+          if (holds_alternative<binary>(data))
           {
-            auto message = _auxMessageAssembler.PushMessage(std::get<rtc::binary>(data));
+            auto message = _auxMessageAssembler.PushMessage(get<binary>(data));
             if (message)
             {
               _events.raise(AuxMessageReceived, this, &*message);

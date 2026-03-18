@@ -4,35 +4,61 @@
 
 using namespace Axodox::Storage;
 using namespace std;
+using namespace rtc;
 
 namespace Warpr::Messaging
 {
-  std::vector<memory_stream> MessageSplitter::SplitMessage(size_t maxMessageSize, bool isText, std::span<const uint8_t> bytes, uint32_t index)
+  MessageSplitter::MessageSplitter(size_t maxMessageSize) :
+    MaxMessageSize(maxMessageSize)
   {
-    std::vector<memory_stream> result;
+    _buffer.reserve(maxMessageSize);
+  }
 
-    auto messageSize = maxMessageSize - Warpr::Messaging::FragmentedMessageHeader::Size;
-    auto messageSizeWithFlag = messageSize | (isText ? FragmentedMessageHeader::TextFlag : 0u);
-
-    memory_stream stream;
-    stream.reserve(maxMessageSize);
-
-    size_t position = 0u;
-    auto fragmentIndex = 0u;
-    while (position < bytes.size())
+  void MessageSplitter::SplitMessage(const rtc::message_variant& message, std::function<void(const rtc::binary&)> onMessage)
+  {
+    //Retrieve content
+    span<const uint8_t> content;
+    MessageContentType contentType;
+    if (holds_alternative<binary>(message))
     {
-      auto fragmentLength = min(messageSize, bytes.size() - position);
-      stream.reset();
+      auto& binaryMessage = get<binary>(message);
+      content = { reinterpret_cast<const uint8_t*>(binaryMessage.data()), binaryMessage.size() };
+      contentType = MessageContentType::Binary;
+    }
+    else if (holds_alternative<string>(message))
+    {
+      auto& textMessage = get<string>(message);
+      content = { reinterpret_cast<const uint8_t*>(textMessage.data()), textMessage.size() };
+      contentType = MessageContentType::Text;
+    }
+    else
+    {
+      return;
+    }
 
-      stream.write(uint32_t(index));
-      stream.write(uint32_t(bytes.size()));
-      stream.write(uint32_t(messageSizeWithFlag));
-      stream.write(uint32_t(fragmentIndex++));
-      stream.write(bytes.subspan(position, fragmentLength));
+    //Create header
+    auto maxFragmentSize = MaxMessageSize - sizeof(FragmentedMessageHeader);
 
-      result.push_back(stream);
+    FragmentedMessageHeader header;
+    header.MessageSize = uint32_t(content.size());
+    header.ContentType(contentType);
+    header.FragmentSize(uint32_t(maxFragmentSize));
+
+    //Write fragments
+    size_t position = 0u;
+    while (position < content.size())
+    {
+      auto fragmentLength = min(maxFragmentSize, content.size() - position);
+
+      _buffer.resize(fragmentLength + sizeof(FragmentedMessageHeader));
+
+      memcpy(_buffer.data(), &header, sizeof(FragmentedMessageHeader));
+      memcpy(_buffer.data() + sizeof(FragmentedMessageHeader), content.data() + position, fragmentLength);
+
+      onMessage(_buffer);
+
+      header.MessageIndex++;
       position += fragmentLength;
     }
-    return result;
   }
 }

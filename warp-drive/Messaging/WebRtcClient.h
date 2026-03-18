@@ -5,7 +5,7 @@
 #include "MessageSplitter.h"
 
 namespace Warpr::Messaging
-{  
+{
   class WebRtcClient
   {
     inline static const Axodox::Infrastructure::logger _logger{ "WebRtcClient" };
@@ -25,7 +25,7 @@ namespace Warpr::Messaging
     WebRtcClient(Axodox::Infrastructure::dependency_container* container);
 
     bool IsConnected() const;
-    void SendVideoFrame(std::span<const uint8_t> bytes);
+    void SendVideoFrame(const std::vector<uint8_t>& bytes);
     void SendControlMessage(const rtc::message_variant& message);
     void SendAuxMessage(const rtc::message_variant& message);
 
@@ -35,9 +35,8 @@ namespace Warpr::Messaging
     static const std::string_view _stateNames[];
     static const std::string_view _iceStateNames[];
     static const std::string_view _gatheringStateNames[];
-    Axodox::Infrastructure::dependency_container_ref _containerRef;
 
-    uint32_t _messageIndex = 0;
+    Axodox::Infrastructure::dependency_container_ref _containerRef;
 
     std::mutex _mutex;
     std::shared_ptr<WarpConfiguration> _settings;
@@ -48,18 +47,20 @@ namespace Warpr::Messaging
     std::shared_ptr<rtc::DataChannel> _controlChannel;
     std::shared_ptr<rtc::DataChannel> _auxChannel;
 
+    std::chrono::steady_clock::time_point _lastReportingTime;
+    uint64_t _dataSentSinceLastReport;
+
+    MessageSplitter _streamMessageSplitter;
     MessageAssembler _auxMessageAssembler;
     MessageSplitter _auxMessageSplitter;
 
     PairingConfiguration _configuration;
 
     Axodox::Infrastructure::event_subscription _signalerMessageReceivedSubscription;
-
     Axodox::Threading::background_thread _connectionThread;
 
     void OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message);
     void OnPairingComplete(const PairingCompleteMessage* message);
     void Connect();
-    void SendMessage(rtc::DataChannel* channel, std::span<const uint8_t> bytes, bool isText = false);
   };
 }
