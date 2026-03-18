@@ -1,5 +1,5 @@
 import { ArrayStream } from "./array-stream";
-import { MessageContentType, MessageContent, MessageFragmentSizeBits } from "./messages";
+import { MessageContentType, MessageContent, MessageFragmentHeader } from "./messages";
 
 class MessageBuilder {
   public readonly FragmentCount: number;
@@ -48,19 +48,16 @@ export class MessageAssembler {
 
   public PushMessage(buffer: ArrayBuffer): MessageContent | null {
     let stream = new ArrayStream(buffer);
-    let messageIndex = stream.ReadUInt32();
-    let messageSize = stream.ReadUInt32();
-    let fragmentSizeWithContentType = stream.ReadUInt32();
-    let fragmentIndex = stream.ReadUInt32();
+    
+    let header = new MessageFragmentHeader();
+    header.Read(stream);
+
     let fragment = new Uint8Array(stream.ReadToEnd());
 
-    let contentType : MessageContentType = (fragmentSizeWithContentType >>> MessageFragmentSizeBits);
-    let fragmentSize = fragmentSizeWithContentType & ~(1 << MessageFragmentSizeBits);
-
-    let builder = this._builders.get(messageIndex);
+    let builder = this._builders.get(header.MessageIndex);
     if (builder === undefined) {
-      builder = new MessageBuilder(messageIndex, messageSize, fragmentSize, contentType);
-      this._builders.set(messageIndex, builder);
+      builder = new MessageBuilder(header.MessageIndex, header.MessageSize, header.FragmentSize, header.ContentType);
+      this._builders.set(header.MessageIndex, builder);
 
       if (this._builders.size > this._maxBuilderCount) {
         let [oldest] = this._builders.keys();
@@ -69,8 +66,8 @@ export class MessageAssembler {
       }
     }
 
-    if (builder.AddFragment(fragmentIndex, fragment)) {
-      this._builders.delete(messageIndex);
+    if (builder.AddFragment(header.FragmentIndex, fragment)) {
+      this._builders.delete(header.MessageIndex);
 
       return builder.GetMessage();
     } else {

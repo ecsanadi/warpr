@@ -4,7 +4,7 @@ export class MemoryStream {
   private _capacity: number;
   private _dataView: DataView;
 
-  public constructor(initialCapacity: number = 256) {
+  public constructor(initialCapacity: number = 0) {
     this._capacity = initialCapacity;
     this._buffer = new Uint8Array(initialCapacity);
     this._dataView = new DataView(this._buffer.buffer);
@@ -18,8 +18,10 @@ export class MemoryStream {
   private Reserve(capacity: number): void {
     if (capacity > this._capacity) {
       this._capacity = capacity;
+
       let newBuffer = new Uint8Array(capacity);
       newBuffer.set(this._buffer);
+      
       this._buffer = newBuffer;
       this._dataView = new DataView(this._buffer.buffer);
     }

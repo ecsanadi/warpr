@@ -106,7 +106,7 @@
     <ClCompile Include="Input\InputProvider.cpp" />
     <ClCompile Include="Input\InputSink.cpp" />
     <ClCompile Include="Input\InputSinkFactory.cpp" />
-    <ClCompile Include="Messaging\FragmentedMessageHeader.cpp" />
+    <ClCompile Include="Messaging\MessageFragmentHeader.cpp" />
     <ClCompile Include="Messaging\MessageAssembler.cpp" />
     <ClCompile Include="Messaging\MessageSplitter.cpp" />
     <ClCompile Include="Messaging\SignalingMessages.cpp" />
@@ -140,7 +140,7 @@
     <ClInclude Include="Input\InputSink.h" />
     <ClInclude Include="Input\InputSinkFactory.h" />
     <ClInclude Include="Input\PointerInput.h" />
-    <ClInclude Include="Messaging\FragmentedMessageHeader.h" />
+    <ClInclude Include="Messaging\MessageFragmentHeader.h" />
     <ClInclude Include="Messaging\MessageAssembler.h" />
     <ClInclude Include="Messaging\MessageSplitter.h" />
     <ClInclude Include="Messaging\SignalingMessages.h" />

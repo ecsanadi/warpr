@@ -1,5 +1,5 @@
 #include "warpr_includes.h"
-#include "FragmentedMessageHeader.h"
+#include "MessageFragmentHeader.h"
 
 namespace
 {
@@ -9,22 +9,22 @@ namespace
 
 namespace Warpr::Messaging
 {
-  MessageContentType FragmentedMessageHeader::ContentType() const
+  MessageContentType MessageFragmentHeader::ContentType() const
   {
     return MessageContentType(FragmentSizeWithContentType >> MessageFragmentSizeBits);
   }
 
-  void FragmentedMessageHeader::ContentType(MessageContentType value)
+  void MessageFragmentHeader::ContentType(MessageContentType value)
   {
     FragmentSizeWithContentType = FragmentSizeWithContentType & MessageFragmentSizeMask | (uint32_t(value) << MessageFragmentSizeBits);
   }
 
-  uint32_t FragmentedMessageHeader::FragmentSize() const
+  uint32_t MessageFragmentHeader::FragmentSize() const
   {
     return FragmentSizeWithContentType & MessageFragmentSizeMask;
   }
 
-  void FragmentedMessageHeader::FragmentSize(uint32_t value)
+  void MessageFragmentHeader::FragmentSize(uint32_t value)
   {
     FragmentSizeWithContentType = FragmentSizeWithContentType & ~MessageFragmentSizeMask | value;
   }

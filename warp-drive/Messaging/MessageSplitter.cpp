@@ -1,6 +1,6 @@
 #include "warpr_includes.h"
 #include "MessageSplitter.h"
-#include "FragmentedMessageHeader.h"
+#include "MessageFragmentHeader.h"
 
 using namespace Axodox::Storage;
 using namespace std;
@@ -37,9 +37,9 @@ namespace Warpr::Messaging
     }
 
     //Create header
-    auto maxFragmentSize = MaxMessageSize - sizeof(FragmentedMessageHeader);
+    auto maxFragmentSize = MaxMessageSize - sizeof(MessageFragmentHeader);
 
-    FragmentedMessageHeader header;
+    MessageFragmentHeader header;
     header.MessageSize = uint32_t(content.size());
     header.ContentType(contentType);
     header.FragmentSize(uint32_t(maxFragmentSize));
@@ -50,10 +50,10 @@ namespace Warpr::Messaging
     {
       auto fragmentLength = min(maxFragmentSize, content.size() - position);
 
-      _buffer.resize(fragmentLength + sizeof(FragmentedMessageHeader));
+      _buffer.resize(fragmentLength + sizeof(MessageFragmentHeader));
 
-      memcpy(_buffer.data(), &header, sizeof(FragmentedMessageHeader));
-      memcpy(_buffer.data() + sizeof(FragmentedMessageHeader), content.data() + position, fragmentLength);
+      memcpy(_buffer.data(), &header, sizeof(MessageFragmentHeader));
+      memcpy(_buffer.data() + sizeof(MessageFragmentHeader), content.data() + position, fragmentLength);
 
       onMessage(_buffer);
 

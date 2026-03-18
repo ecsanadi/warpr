@@ -12,6 +12,6 @@ namespace Warpr::Messaging
     uint32_t _messageIndex = 0;
     uint32_t _fragmentCount = 0;
     uint32_t _fragmentsReceived = 0;
-    std::vector<std::byte> _buffer;
+    rtc::binary _buffer;
   };  
 }

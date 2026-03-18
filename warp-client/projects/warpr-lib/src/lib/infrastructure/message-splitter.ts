@@ -1,5 +1,5 @@
 import { MemoryStream } from "./memory-stream";
-import { MaxSafeMessageSize, MessageContent, MessageContentType, MessageFragmentSizeBits } from "./messages";
+import { MaxSafeMessageSize, MessageContent, MessageContentType, MessageFragmentHeader } from "./messages";
 
 export class MessageSplitter {
   private _messageIndex: number = 0;
@@ -24,7 +24,11 @@ export class MessageSplitter {
     let messageSize = this.MaxMessageSize - 16;
     let stream = new MemoryStream(this.MaxMessageSize);
 
-    let fragmentSizeWithFlag = messageSize | (contentType << MessageFragmentSizeBits);
+    let header = new MessageFragmentHeader();
+    header.MessageIndex = this._messageIndex++;
+    header.MessageSize = content.length;
+    header.ContentType = contentType;
+    header.FragmentSize = messageSize;
     
     let position = 0;
     let fragmentIndex = 0;
@@ -32,18 +36,14 @@ export class MessageSplitter {
     while (position < content.length) {
       let fragmentLength = Math.min(messageSize, content.length - position);
 
-      stream.WriteUInt32(this._messageIndex);
-      stream.WriteUInt32(content.length);
-      stream.WriteUInt32(fragmentSizeWithFlag);
-      stream.WriteUInt32(fragmentIndex++);
+      header.Write(stream);      
       stream.WriteBytes(content.subarray(position, position + fragmentLength));
 
       yield stream.ToArrayBufferView();
       stream.Clear();
 
       position += fragmentLength;
+      header.FragmentIndex++;
     }
-
-    this._messageIndex++;
   }
 }

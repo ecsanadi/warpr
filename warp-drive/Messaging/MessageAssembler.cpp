@@ -1,6 +1,6 @@
 #include "warpr_includes.h"
 #include "MessageAssembler.h"
-#include "FragmentedMessageHeader.h"
+#include "MessageFragmentHeader.h"
 
 using namespace Axodox::Storage;
 using namespace std;
@@ -11,7 +11,7 @@ namespace Warpr::Messaging
   std::optional<rtc::message_variant> MessageAssembler::PushMessage(const rtc::binary& message)
   {
     //Message must be longer than the header
-    if (message.size() < sizeof(FragmentedMessageHeader))
+    if (message.size() < sizeof(MessageFragmentHeader))
     {
       return std::nullopt;
     }
@@ -19,7 +19,7 @@ namespace Warpr::Messaging
     //Read header
     array_stream stream{ reinterpret_cast<const vector<uint8_t>&>(message) };
 
-    FragmentedMessageHeader header;
+    MessageFragmentHeader header;
     stream.read(header);
 
     auto contentType = header.ContentType();
@@ -36,11 +36,11 @@ namespace Warpr::Messaging
     }
 
     //Copy received segment
-    auto fragmentDataSize = message.size() - sizeof(FragmentedMessageHeader);
+    auto fragmentDataSize = message.size() - sizeof(MessageFragmentHeader);
     auto offset = header.FragmentIndex * fragmentSize;
     if (offset + fragmentDataSize <= _buffer.size())
     {
-      std::memcpy(_buffer.data() + offset, message.data() + sizeof(FragmentedMessageHeader), fragmentDataSize);
+      std::memcpy(_buffer.data() + offset, message.data() + sizeof(MessageFragmentHeader), fragmentDataSize);
       _fragmentsReceived++;
     }
 

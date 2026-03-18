@@ -9,7 +9,7 @@ namespace Warpr::Messaging
     Text
   };
 
-  struct FragmentedMessageHeader
+  struct MessageFragmentHeader
   {
     uint32_t MessageIndex = 0;
     uint32_t MessageSize = 0;
@@ -23,5 +23,5 @@ namespace Warpr::Messaging
     void FragmentSize(uint32_t value);
   };  
 
-  static_assert(sizeof(FragmentedMessageHeader) == 16, "FragmentedMessageHeader must be 16 bytes.");
+  static_assert(sizeof(MessageFragmentHeader) == 16, "MessageFragmentHeader must be 16 bytes.");
 }
