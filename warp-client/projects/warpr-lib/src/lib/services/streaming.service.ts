@@ -1,11 +1,12 @@
 import { Injectable } from '@angular/core';
 import { MessagingService } from './messaging.service';
-import { GetConfiguration, PairingCompleteMessage, PeerConnectionCandidateMessage, PeerConnectionDescriptionMessage, WarprSignalingMessage, WarprSignalingMessageType } from '../data/signaling-messages';
+import { GetConfiguration, PeerConnectionCandidateMessage, PeerConnectionDescriptionMessage, WarprSignalingMessage, WarprSignalingMessageType } from '../data/signaling-messages';
 import { IMessagingClient } from '../networking/messaging-client';
 import { EncodedFrame } from '../data/frames';
 import { EventOwner, EventPublisher } from '../infrastructure/events';
 import { MessageAssembler } from '../infrastructure/message-assembler';
 import { MessageSplitter } from '../infrastructure/message-splitter';
+import { MessageContent } from '../infrastructure/messages';
 
 @Injectable({
   providedIn: 'root'
@@ -20,15 +21,15 @@ export class StreamingService {
 
   private _auxConnection?: RTCDataChannel;
   private _auxMessageBuilder?: MessageAssembler;
-  private _auxMessageSplitter: MessageSplitter = new MessageSplitter(262144);
+  private _auxMessageSplitter?: MessageSplitter;
 
   private readonly _events = new EventOwner();
   public readonly FrameReceived = new EventPublisher<StreamingService, EncodedFrame>(this._events);
   public readonly Connected = new EventPublisher<StreamingService, any>(this._events);
   public readonly AuxChannelReady = new EventPublisher<StreamingService, any>(this._events);
 
-  public readonly ControlMessageReceived = new EventPublisher<StreamingService, any>(this._events);
-  public readonly AuxMessageReceived = new EventPublisher<StreamingService, any>(this._events);
+  public readonly ControlMessageReceived = new EventPublisher<StreamingService, MessageContent>(this._events);
+  public readonly AuxMessageReceived = new EventPublisher<StreamingService, MessageContent>(this._events);
 
   constructor(
     private _messagingService: MessagingService) {
@@ -42,10 +43,12 @@ export class StreamingService {
 
     this._controlConnection?.close();
     this._streamConnection?.close();
-    this._streamMessageBuilder = new MessageAssembler();
     this._auxConnection?.close();
-    this._auxMessageBuilder = new MessageAssembler(1);
     this._peerConnection?.close();
+
+    this._streamMessageBuilder = new MessageAssembler(3);
+    this._auxMessageBuilder = new MessageAssembler();
+    this._auxMessageSplitter = new MessageSplitter();
 
     this._peerConnection = new RTCPeerConnection(configuration);
     this._peerConnection.onicecandidate = (event) => this.OnIceCandidateAdded(event.candidate?.candidate);
@@ -59,9 +62,9 @@ export class StreamingService {
   }
 
   public SendAuxMessage(message: any) {
-    let fragments = this._auxMessageSplitter.SplitMessage(message);
-    console.debug(`Sending message in ${fragments?.length} fragments.`);
+    if (!this._auxMessageSplitter) return;
 
+    let fragments = this._auxMessageSplitter.SplitMessage(message);
     for (let fragment of fragments) {
       this._auxConnection?.send(fragment);
     }
@@ -79,7 +82,6 @@ export class StreamingService {
         this._controlConnection = event.channel;
         this._controlConnection.binaryType = "arraybuffer"
         this._controlConnection.onmessage = (event) => this._events.Raise(this.ControlMessageReceived, this, event.data);
-        this._events.Raise(this.Connected, this, null);
         break;
       case "stream":
         this._streamConnection = event.channel;
@@ -89,32 +91,34 @@ export class StreamingService {
       case "aux":
         this._auxConnection = event.channel;
         this._auxConnection.binaryType = "arraybuffer"
-        this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
         this._auxConnection.onopen = () => {
-          this._auxMessageSplitter.MaxMessageSize = this._peerConnection?.sctp?.maxMessageSize ?? 262144;
+          let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize;
+          if (maxMessageSize) this._auxMessageSplitter!.MaxMessageSize = maxMessageSize;
+
           this._events.Raise(this.Connected, this, null);
         };
+        this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
         break;
     }
   }
 
-  private _lastRefreshTime = performance.now();
-  private _count = 0;
+  private _lastFramerateRefreshTime = performance.now();
+  private _frameCounter = 0;
 
   private OnStreamMessage(event: MessageEvent<any>) {
 
     let message = this._streamMessageBuilder?.PushMessage(event.data as ArrayBuffer);
     if (!message) return;
 
+    this._frameCounter++;
+    
     let now = performance.now();
-    let elapsed = now - this._lastRefreshTime;
-    this._count++;
-
+    let elapsed = now - this._lastFramerateRefreshTime;
     if (elapsed > 1000) {
-      this._lastRefreshTime = now;
+      this._lastFramerateRefreshTime = now;
 
-      console.debug(`Messages: ${this._count / elapsed * 1000} FPS`);
-      this._count = 0;
+      console.debug(`Messages: ${this._frameCounter / elapsed * 1000} FPS`);
+      this._frameCounter = 0;
     }
 
     let frame = new EncodedFrame(message as ArrayBuffer);
@@ -122,14 +126,8 @@ export class StreamingService {
   }
 
   private OnAuxMessage(event: MessageEvent<any>) {
-    if (event.data instanceof ArrayBuffer) {
-      let message = this._auxMessageBuilder?.PushMessage(event.data);
-      if (!message) return;
-
-      this._events.Raise(this.AuxMessageReceived, this, message);
-    } else {
-      this._events.Raise(this.AuxMessageReceived, this, event.data);
-    }
+    let message = this._auxMessageBuilder?.PushMessage(event.data);
+    if (message) this._events.Raise(this.AuxMessageReceived, this, message);
   }
 
   private OnIceCandidateAdded(candidate?: string) {

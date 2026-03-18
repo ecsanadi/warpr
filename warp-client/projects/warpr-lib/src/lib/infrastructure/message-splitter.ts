@@ -1,55 +1,49 @@
 import { MemoryStream } from "./memory-stream";
+import { MaxSafeMessageSize, MessageContent, MessageContentType, MessageFragmentSizeBits } from "./messages";
 
 export class MessageSplitter {
   private _messageIndex: number = 0;
-  private _maxMessageSize: number;
+  private readonly _textEncoder = new TextEncoder();
 
-  public constructor(maxMessageSize: number = 262144) {
-    this._maxMessageSize = maxMessageSize;
+  public constructor(public MaxMessageSize = MaxSafeMessageSize) {
   }
 
-  set MaxMessageSize(value: number) {
-    this._maxMessageSize = value;
-  }
-
-  public SplitMessage(message: any): ArrayBuffer[] {
-    let bytes: Uint8Array;
-    let isText: boolean = false;
-    let fragments: ArrayBuffer[] = [];    
-    let position = 0;
-    let fragmentIndex = 0;
+  public *SplitMessage(message: MessageContent): Generator<Uint8Array<ArrayBuffer>> {
+    let content: Uint8Array;
+    let contentType : MessageContentType;
 
     if (typeof message === 'string') {
-      bytes = new TextEncoder().encode(message);
-      isText = true;
-    } else if (message instanceof ArrayBuffer) {
-      bytes = new Uint8Array(message);
-    } else if (message instanceof Uint8Array) {
-      bytes = message;
-    } else {
-      let json = JSON.stringify(message);
-      bytes = new TextEncoder().encode(json);
-      isText = true;
+      content = this._textEncoder.encode(message);
+      contentType = MessageContentType.Text;
     }
+    else{
+      content = new Uint8Array(message);
+      contentType = MessageContentType.Binary;
+    }
+    
+    let messageSize = this.MaxMessageSize - 16;
+    let stream = new MemoryStream(this.MaxMessageSize);
 
-    let messageSize = this._maxMessageSize - 16;
-    let fragmentSizeWithFlag = messageSize | (isText ? 0x80000000 : 0);
-
-    while (position < bytes.length) {
-      let fragmentLength = Math.min(messageSize, bytes.length - position);
-      let stream = new MemoryStream(this._maxMessageSize);
+    let fragmentSizeWithFlag = messageSize | (contentType << MessageFragmentSizeBits);
+    
+    let position = 0;
+    let fragmentIndex = 0;
+    let fragments: ArrayBuffer[] = [];
+    while (position < content.length) {
+      let fragmentLength = Math.min(messageSize, content.length - position);
 
       stream.WriteUInt32(this._messageIndex);
-      stream.WriteUInt32(bytes.length);
+      stream.WriteUInt32(content.length);
       stream.WriteUInt32(fragmentSizeWithFlag);
       stream.WriteUInt32(fragmentIndex++);
-      stream.WriteBytes(bytes.subarray(position, position + fragmentLength));
+      stream.WriteBytes(content.subarray(position, position + fragmentLength));
 
-      fragments.push(stream.ToArrayBuffer());
+      yield stream.ToArrayBufferView();
+      stream.Clear();
+
       position += fragmentLength;
     }
 
     this._messageIndex++;
-    return fragments;
   }
 }

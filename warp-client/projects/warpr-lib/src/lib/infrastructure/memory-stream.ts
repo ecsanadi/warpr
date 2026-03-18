@@ -1,6 +1,6 @@
 export class MemoryStream {
   private _buffer: Uint8Array;
-  private _position: number;
+  private _size: number;
   private _capacity: number;
   private _dataView: DataView;
 
@@ -8,7 +8,11 @@ export class MemoryStream {
     this._capacity = initialCapacity;
     this._buffer = new Uint8Array(initialCapacity);
     this._dataView = new DataView(this._buffer.buffer);
-    this._position = 0;
+    this._size = 0;
+  }
+
+  public Clear() {
+    this._size = 0;
   }
 
   private Reserve(capacity: number): void {
@@ -22,11 +26,15 @@ export class MemoryStream {
   }
 
   public ToArrayBuffer(): ArrayBuffer {
-    return this._buffer.buffer.slice(0, this._position) as ArrayBuffer;
+    return this._buffer.buffer.slice(0, this._size) as ArrayBuffer;
+  }
+
+  public ToArrayBufferView(): Uint8Array<ArrayBuffer> {
+    return new Uint8Array(this._buffer.buffer as ArrayBuffer, 0, this._size);
   }
 
   private ExtendCapacity(additionalBytes: number): void {
-    let requiredCapacity = this._position + additionalBytes;
+    let requiredCapacity = this._size + additionalBytes;
     if (requiredCapacity > this._capacity) {
       let newCapacity = Math.max(this._capacity * 2, requiredCapacity);
       this.Reserve(newCapacity);
@@ -35,13 +43,13 @@ export class MemoryStream {
 
   public WriteUInt32(value: number): void {
     this.ExtendCapacity(4);
-    this._dataView.setUint32(this._position, value, true);
-    this._position += 4;
+    this._dataView.setUint32(this._size, value, true);
+    this._size += 4;
   }
 
   public WriteBytes(bytes: Uint8Array): void {
     this.ExtendCapacity(bytes.length);
-    this._buffer.set(bytes, this._position);
-    this._position += bytes.length;
+    this._buffer.set(bytes, this._size);
+    this._size += bytes.length;
   }
 }
