@@ -40,6 +40,7 @@ namespace Warpr::Messaging
     auto maxFragmentSize = MaxMessageSize - sizeof(MessageFragmentHeader);
 
     MessageFragmentHeader header;
+    header.MessageIndex++;
     header.MessageSize = uint32_t(content.size());
     header.ContentType(contentType);
     header.FragmentSize(uint32_t(maxFragmentSize));
@@ -56,8 +57,7 @@ namespace Warpr::Messaging
       memcpy(_buffer.data() + sizeof(MessageFragmentHeader), content.data() + position, fragmentLength);
 
       onMessage(_buffer);
-
-      header.MessageIndex++;
+      header.FragmentIndex++;
       position += fragmentLength;
     }
   }

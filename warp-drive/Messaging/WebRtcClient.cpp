@@ -153,6 +153,7 @@ namespace Warpr::Messaging
         _controlChannel.reset();
         _streamChannel.reset();
         _peerConnection.reset();
+        _auxMessageAssembler.Reset();
 
         //Create configuration
         Configuration config;
@@ -160,7 +161,7 @@ namespace Warpr::Messaging
         config.maxMessageSize = 256 * 1024;
         config.mtu = 1500;
 
-        //Create peer connection      
+        //Create peer connection
         _peerConnection = make_unique<PeerConnection>(config);
 
         _peerConnection->onLocalDescription([=](const Description& description) {

@@ -57,5 +57,13 @@ namespace Warpr::Messaging
     }
 
     return nullopt;
-  }  
+  }
+
+  void MessageAssembler::Reset()
+  {
+    _messageIndex = ~0u;
+    _fragmentCount = 0;
+    _fragmentsReceived = 0;
+    _buffer.clear();
+  }
 }

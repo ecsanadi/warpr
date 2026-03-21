@@ -72,6 +72,11 @@ export class StreamingService {
 
   private OnConnectionStateChanged() {
     console.log("WebRTC: " + this._peerConnection?.connectionState);
+
+    if (this._peerConnection?.connectionState === "connected") {
+      let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize;
+      if (maxMessageSize) this._auxMessageSplitter!.MaxMessageSize = maxMessageSize;
+    }
   }
 
   private OnDataChannel(event: RTCDataChannelEvent) {
@@ -91,13 +96,8 @@ export class StreamingService {
       case "aux":
         this._auxConnection = event.channel;
         this._auxConnection.binaryType = "arraybuffer"
-        this._auxConnection.onopen = () => {
-          let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize;
-          if (maxMessageSize) this._auxMessageSplitter!.MaxMessageSize = maxMessageSize;
-
-          this._events.Raise(this.Connected, this, null);
-        };
         this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
+        this._events.Raise(this.Connected, this, null);
         break;
     }
   }
@@ -111,7 +111,7 @@ export class StreamingService {
     if (!message) return;
 
     this._frameCounter++;
-    
+
     let now = performance.now();
     let elapsed = now - this._lastFramerateRefreshTime;
     if (elapsed > 1000) {
