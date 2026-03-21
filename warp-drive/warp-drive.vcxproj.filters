@@ -84,7 +84,7 @@
     <ClCompile Include="Messaging\MessageSplitter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="Messaging\FragmentedMessageHeader.cpp">
+    <ClCompile Include="Messaging\MessageFragmentHeader.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -169,7 +169,7 @@
     <ClInclude Include="Messaging\MessageSplitter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Messaging\FragmentedMessageHeader.h">
+    <ClInclude Include="Messaging\MessageFragmentHeader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
