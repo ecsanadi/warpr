@@ -106,6 +106,9 @@
     <ClCompile Include="Input\InputProvider.cpp" />
     <ClCompile Include="Input\InputSink.cpp" />
     <ClCompile Include="Input\InputSinkFactory.cpp" />
+    <ClCompile Include="Messaging\MessageFragmentHeader.cpp" />
+    <ClCompile Include="Messaging\MessageAssembler.cpp" />
+    <ClCompile Include="Messaging\MessageSplitter.cpp" />
     <ClCompile Include="Messaging\SignalingMessages.cpp" />
     <ClCompile Include="Messaging\StreamConnection.cpp" />
     <ClCompile Include="Messaging\StreamingMessages.cpp" />
@@ -137,6 +140,9 @@
     <ClInclude Include="Input\InputSink.h" />
     <ClInclude Include="Input\InputSinkFactory.h" />
     <ClInclude Include="Input\PointerInput.h" />
+    <ClInclude Include="Messaging\MessageFragmentHeader.h" />
+    <ClInclude Include="Messaging\MessageAssembler.h" />
+    <ClInclude Include="Messaging\MessageSplitter.h" />
     <ClInclude Include="Messaging\SignalingMessages.h" />
     <ClInclude Include="Messaging\StreamConnection.h" />
     <ClInclude Include="Messaging\StreamingMessages.h" />
@@ -150,7 +156,7 @@
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\packages\nvenc.12.2.72\build\native\nvenc.targets" Condition="Exists('..\packages\nvenc.12.2.72\build\native\nvenc.targets')" />
     <Import Project="..\packages\libdatachannel.0.22.6\build\native\libdatachannel.targets" Condition="Exists('..\packages\libdatachannel.0.22.6\build\native\libdatachannel.targets')" />
-    <Import Project="..\packages\Axodox.Common.1.0.66\build\native\Axodox.Common.targets" Condition="Exists('..\packages\Axodox.Common.1.0.66\build\native\Axodox.Common.targets')" />
+    <Import Project="..\packages\Axodox.Common.1.0.75\build\native\Axodox.Common.targets" Condition="Exists('..\packages\Axodox.Common.1.0.75\build\native\Axodox.Common.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -158,6 +164,6 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\nvenc.12.2.72\build\native\nvenc.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\nvenc.12.2.72\build\native\nvenc.targets'))" />
     <Error Condition="!Exists('..\packages\libdatachannel.0.22.6\build\native\libdatachannel.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\libdatachannel.0.22.6\build\native\libdatachannel.targets'))" />
-    <Error Condition="!Exists('..\packages\Axodox.Common.1.0.66\build\native\Axodox.Common.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Axodox.Common.1.0.66\build\native\Axodox.Common.targets'))" />
+    <Error Condition="!Exists('..\packages\Axodox.Common.1.0.75\build\native\Axodox.Common.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Axodox.Common.1.0.75\build\native\Axodox.Common.targets'))" />
   </Target>
 </Project>

@@ -1,10 +1,12 @@
 import { Injectable } from '@angular/core';
 import { MessagingService } from './messaging.service';
-import { GetConfiguration, PairingCompleteMessage, PeerConnectionCandidateMessage, PeerConnectionDescriptionMessage, WarprSignalingMessage, WarprSignalingMessageType } from '../data/signaling-messages';
+import { GetConfiguration, PeerConnectionCandidateMessage, PeerConnectionDescriptionMessage, WarprSignalingMessage, WarprSignalingMessageType } from '../data/signaling-messages';
 import { IMessagingClient } from '../networking/messaging-client';
 import { EncodedFrame } from '../data/frames';
 import { EventOwner, EventPublisher } from '../infrastructure/events';
 import { MessageAssembler } from '../infrastructure/message-assembler';
+import { MessageSplitter } from '../infrastructure/message-splitter';
+import { MessageContent } from '../infrastructure/messages';
 
 @Injectable({
   providedIn: 'root'
@@ -15,16 +17,19 @@ export class StreamingService {
   private _controlConnection?: RTCDataChannel;
 
   private _streamConnection?: RTCDataChannel;
-  private _messageBuilder?: MessageAssembler;
+  private _streamMessageBuilder?: MessageAssembler;
 
   private _auxConnection?: RTCDataChannel;
+  private _auxMessageBuilder?: MessageAssembler;
+  private _auxMessageSplitter?: MessageSplitter;
 
   private readonly _events = new EventOwner();
   public readonly FrameReceived = new EventPublisher<StreamingService, EncodedFrame>(this._events);
   public readonly Connected = new EventPublisher<StreamingService, any>(this._events);
+  public readonly AuxChannelReady = new EventPublisher<StreamingService, any>(this._events);
 
-  public readonly ControlMessageReceived = new EventPublisher<StreamingService, any>(this._events);
-  public readonly AuxMessageReceived = new EventPublisher<StreamingService, any>(this._events);
+  public readonly ControlMessageReceived = new EventPublisher<StreamingService, MessageContent>(this._events);
+  public readonly AuxMessageReceived = new EventPublisher<StreamingService, MessageContent>(this._events);
 
   constructor(
     private _messagingService: MessagingService) {
@@ -38,9 +43,12 @@ export class StreamingService {
 
     this._controlConnection?.close();
     this._streamConnection?.close();
-    this._messageBuilder = new MessageAssembler();
     this._auxConnection?.close();
     this._peerConnection?.close();
+
+    this._streamMessageBuilder = new MessageAssembler(3);
+    this._auxMessageBuilder = new MessageAssembler();
+    this._auxMessageSplitter = new MessageSplitter();
 
     this._peerConnection = new RTCPeerConnection(configuration);
     this._peerConnection.onicecandidate = (event) => this.OnIceCandidateAdded(event.candidate?.candidate);
@@ -54,11 +62,21 @@ export class StreamingService {
   }
 
   public SendAuxMessage(message: any) {
-    this._auxConnection?.send(message);
+    if (!this._auxMessageSplitter) return;
+
+    let fragments = this._auxMessageSplitter.SplitMessage(message);
+    for (let fragment of fragments) {
+      this._auxConnection?.send(fragment);
+    }
   }
 
   private OnConnectionStateChanged() {
     console.log("WebRTC: " + this._peerConnection?.connectionState);
+
+    if (this._peerConnection?.connectionState === "connected") {
+      let maxMessageSize = this._peerConnection?.sctp?.maxMessageSize;
+      if (maxMessageSize) this._auxMessageSplitter!.MaxMessageSize = maxMessageSize;
+    }
   }
 
   private OnDataChannel(event: RTCDataChannelEvent) {
@@ -69,43 +87,47 @@ export class StreamingService {
         this._controlConnection = event.channel;
         this._controlConnection.binaryType = "arraybuffer"
         this._controlConnection.onmessage = (event) => this._events.Raise(this.ControlMessageReceived, this, event.data);
-        this._events.Raise(this.Connected, this, null);
         break;
       case "stream":
         this._streamConnection = event.channel;
         this._streamConnection.binaryType = "arraybuffer"
-        this._streamConnection.onmessage = (event) => this.OnLowLatencyMessage(event);
+        this._streamConnection.onmessage = (event) => this.OnStreamMessage(event);
         break;
       case "aux":
         this._auxConnection = event.channel;
         this._auxConnection.binaryType = "arraybuffer"
-        this._auxConnection.onmessage = (event) => this._events.Raise(this.AuxMessageReceived, this, event.data);
+        this._auxConnection.onmessage = (event) => this.OnAuxMessage(event);
         this._events.Raise(this.Connected, this, null);
         break;
     }
   }
 
-  private _lastRefreshTime = performance.now();
-  private _count = 0;
+  private _lastFramerateRefreshTime = performance.now();
+  private _frameCounter = 0;
 
-  private OnLowLatencyMessage(event: MessageEvent<any>) {
+  private OnStreamMessage(event: MessageEvent<any>) {
 
-    let message = this._messageBuilder?.PushMessage(event.data as ArrayBuffer);
+    let message = this._streamMessageBuilder?.PushMessage(event.data as ArrayBuffer);
     if (!message) return;
 
+    this._frameCounter++;
+
     let now = performance.now();
-    let elapsed = now - this._lastRefreshTime;
-    this._count++;
-
+    let elapsed = now - this._lastFramerateRefreshTime;
     if (elapsed > 1000) {
-      this._lastRefreshTime = now;
+      this._lastFramerateRefreshTime = now;
 
-      console.debug(`Messages: ${this._count / elapsed * 1000} FPS`);
-      this._count = 0;
+      console.debug(`Messages: ${this._frameCounter / elapsed * 1000} FPS`);
+      this._frameCounter = 0;
     }
 
-    let frame = new EncodedFrame(message);
+    let frame = new EncodedFrame(message as ArrayBuffer);
     this._events.Raise(this.FrameReceived, this, frame);
+  }
+
+  private OnAuxMessage(event: MessageEvent<any>) {
+    let message = this._auxMessageBuilder?.PushMessage(event.data);
+    if (message) this._events.Raise(this.AuxMessageReceived, this, message);
   }
 
   private OnIceCandidateAdded(candidate?: string) {

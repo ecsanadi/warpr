@@ -2,7 +2,6 @@
 #include "WebRtcClient.h"
 
 using namespace Axodox::Infrastructure;
-using namespace Axodox::Storage;
 using namespace Axodox::Threading;
 using namespace rtc;
 using namespace std;
@@ -41,6 +40,10 @@ namespace Warpr::Messaging
     _containerRef(container->get_ref()),
     _settings(container->resolve<WarpConfiguration>()),
     _signaler(container->resolve<WebSocketClient>()),
+
+    _lastReportingTime(steady_clock::now()),
+    _dataSentSinceLastReport(0),
+
     _signalerMessageReceivedSubscription(_signaler->MessageReceived({ this, &WebRtcClient::OnSignalingMessageReceived }))
   { }
 
@@ -49,51 +52,23 @@ namespace Warpr::Messaging
     return _peerConnection && _peerConnection->state() == PeerConnection::State::Connected;
   }
 
-  void WebRtcClient::SendVideoFrame(std::span<const uint8_t> bytes)
+  void WebRtcClient::SendVideoFrame(const std::vector<uint8_t>& bytes)
   {
     lock_guard lock(_mutex);
-
-    //If we are not connected then do not send
     if (!IsConnected()) return;
 
-    //Split to fragments and send
-    {
-      auto messageSize = _peerConnection->remoteMaxMessageSize() - 16;
+    _streamMessageSplitter.SplitMessage(reinterpret_cast<const binary&>(bytes), [=](const binary& message) {
+      _streamChannel->send(message);
+      });
 
-      memory_stream stream;
-      stream.reserve(_peerConnection->remoteMaxMessageSize());
-
-      size_t position = 0u;
-      auto fragmentIndex = 0u;
-      while (position < bytes.size())
-      {
-        auto fragmentLength = min(messageSize, bytes.size() - position);
-        stream.reset();
-
-        stream.write(uint32_t(_messageIndex));
-        stream.write(uint32_t(bytes.size()));
-        stream.write(uint32_t(messageSize));
-        stream.write(uint32_t(fragmentIndex++));
-        stream.write(bytes.subspan(position, fragmentLength));
-
-        _streamChannel->send(reinterpret_cast<const std::byte*>(stream.data()), stream.length());
-        position += fragmentLength;
-      }
-
-      _messageIndex++;
-    }
-
-    using namespace std::chrono;
-    static steady_clock::time_point _lastReportingTime = {};
-    static uint64_t _dataSent = 0;
-    _dataSent += bytes.size();
+    _dataSentSinceLastReport += bytes.size();
     auto now = steady_clock::now();
     if (now - _lastReportingTime > 1s)
     {
       _logger.log(log_severity::debug, L"Output buffer size: {} bytes", _streamChannel->bufferedAmount());
-      _logger.log(log_severity::debug, L"Output data rate: {} bytes/second", _dataSent);
+      _logger.log(log_severity::debug, L"Output data rate: {} bytes/second", _dataSentSinceLastReport);
       _lastReportingTime = now;
-      _dataSent = 0;
+      _dataSentSinceLastReport = 0;
     }
   }
 
@@ -108,7 +83,10 @@ namespace Warpr::Messaging
   {
     lock_guard lock(_mutex);
     if (!IsConnected()) return;
-    _auxChannel->send(message);
+
+    _auxMessageSplitter.SplitMessage(message, [=](const binary& message) {
+      _auxChannel->send(message);
+      });
   }
 
   void WebRtcClient::OnSignalingMessageReceived(WebSocketClient* sender, const WarprSignalingMessage* message)
@@ -175,6 +153,7 @@ namespace Warpr::Messaging
         _controlChannel.reset();
         _streamChannel.reset();
         _peerConnection.reset();
+        _auxMessageAssembler.Reset();
 
         //Create configuration
         Configuration config;
@@ -182,7 +161,7 @@ namespace Warpr::Messaging
         config.maxMessageSize = 256 * 1024;
         config.mtu = 1500;
 
-        //Create peer connection      
+        //Create peer connection
         _peerConnection = make_unique<PeerConnection>(config);
 
         _peerConnection->onLocalDescription([=](const Description& description) {
@@ -203,6 +182,12 @@ namespace Warpr::Messaging
 
         _peerConnection->onStateChange([=](PeerConnection::State state) {
           _logger.log(log_severity::information, "State changed to '{}'.", _stateNames[size_t(state)]);
+
+          if (state == PeerConnection::State::Connected)
+          {
+            _streamMessageSplitter.MaxMessageSize = _peerConnection->remoteMaxMessageSize();
+            _auxMessageSplitter.MaxMessageSize = _peerConnection->remoteMaxMessageSize();
+          }
           });
 
         _peerConnection->onIceStateChange([=](PeerConnection::IceState state) {
@@ -228,7 +213,14 @@ namespace Warpr::Messaging
           _events.raise(ControlMessageReceived, this, &data);
           });
         _auxChannel->onMessage([=](message_variant data) {
-          _events.raise(AuxMessageReceived, this, &data);
+          if (holds_alternative<binary>(data))
+          {
+            auto message = _auxMessageAssembler.PushMessage(get<binary>(data));
+            if (message)
+            {
+              _events.raise(AuxMessageReceived, this, &*message);
+            }
+          }
           });
       }
 
