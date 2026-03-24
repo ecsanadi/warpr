@@ -10,6 +10,7 @@ export class MessagingService extends WebSocketClient<WarprSignalingMessage> {
 
   private static readonly _connectionUri = 'api/sinks/connect';
   private readonly _sessionId = uuid();
+  public static ExternalServer: string | null = null;
 
   constructor() {
     const uri = MessagingService.GetServerUri();
@@ -17,7 +18,7 @@ export class MessagingService extends WebSocketClient<WarprSignalingMessage> {
   }
 
   private static GetServerUri(): string {
-    const location = window.location;
+    const location = new URL(MessagingService.ExternalServer ? MessagingService.ExternalServer : window.location.href);
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     return `${protocol}://${location.host}/${this._connectionUri}`;
   }
