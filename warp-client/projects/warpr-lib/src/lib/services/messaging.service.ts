@@ -18,7 +18,7 @@ export class MessagingService extends WebSocketClient<WarprSignalingMessage> {
   }
 
   private static GetServerUri(): string {
-    const location = new URL(MessagingService.ExternalServer ? MessagingService.ExternalServer : window.location.href);
+    const location = new URL(MessagingService.ExternalServer || window.location.href);
     const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
     return `${protocol}://${location.host}/${this._connectionUri}`;
   }
